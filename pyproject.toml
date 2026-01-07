@@ -1,11 +1,11 @@
 [project]
-name = "Chronoflow"
+name = "LogPulse"
 version = "0.1.0"
-description = "Project description here"
+description = "High-resolution performance logging for Python."
 readme = "README.md"
-authors = [{ name = "Your Name", email = "your.email@example.com" }]
+authors = [{ name = "Eren Irmak", email = "your.email@example.com" }]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["pandas>=2.0.0"]
 
 [build-system]
 requires = ["uv_build>=0.9.5"]
@@ -14,6 +14,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
 ]
 lint = [
     "pre-commit>=4.5.1",
@@ -24,4 +25,4 @@ lint = [
 line-length = 112
 
 [tool.ruff.lint]
-select = ["I"] # Keeps the import sorting rule from hf-mem
+select = ["I"]

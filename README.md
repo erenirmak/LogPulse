@@ -1,3 +1,3 @@
-# Chronoflow
+# LogPulse
 
 Initialized via Dev-Toolkit.
