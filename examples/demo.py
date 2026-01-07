@@ -1,10 +1,12 @@
-import time
 import random
+import time
+
 from logpulse import LogPulse
 
 # 1. Initialize the logger
 # This will create a 'logs' directory and a CSV file
 tracker = LogPulse(storage_path="logs/demo_metrics.csv")
+
 
 # 2. Use as a Decorator
 @tracker.timeit("heavy_computation")
@@ -12,8 +14,9 @@ def process_data(n: int):
     """Simulates a CPU-intensive task."""
     print(f"🚀 Starting task with n={n}...")
     total = sum(i * i for i in range(n))
-    time.sleep(0.5) # Simulate IO delay
+    time.sleep(0.5)  # Simulate IO delay
     return total
+
 
 # 3. Use as a Context Manager
 def run_simulation():
@@ -29,6 +32,7 @@ def run_simulation():
             raise ConnectionError("Server unreachable")
         time.sleep(0.2)
         print("📡 API response received.")
+
 
 # --- Execution ---
 if __name__ == "__main__":
