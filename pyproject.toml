@@ -1,6 +1,6 @@
 [project]
 name = "logpulse"
-version = "0.1.0"
+version = "0.1.1"
 description = "High-resolution performance logging for Python."
 readme = "README.md"
 authors = [{ name = "Eren Irmak", email = "your.email@example.com" }]
