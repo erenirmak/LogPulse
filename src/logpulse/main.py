@@ -9,7 +9,7 @@ import pandas as pd
 
 
 class LogPulse:
-    """High-precision, persistent performance logger for Python applications."""
+    """High-precision, persistent performance logger for cross-execution tracking."""
 
     def __init__(self, session_tag: str = "default", split_files: bool = False):
         self.log_dir = Path("logs")
@@ -33,7 +33,6 @@ class LogPulse:
                 f"but current config saves to a new file: {self.storage_path.name}"
             )
 
-        # Initialize our dual counters
         self.global_run_id, self.session_run_id = self._get_next_run_ids()
 
     def _load_state(self) -> Dict:
@@ -73,35 +72,28 @@ class LogPulse:
         inventory = state.get("session_counters", {})
 
         if session_only:
-            # 1. Prune only this specific tag from the registry
             if self.session_tag in inventory:
                 del inventory[self.session_tag]
 
-            # 2. Delete the file only if it is the current storage target
             if delete_logs and self.storage_path.exists():
                 self.storage_path.unlink()
 
             msg = f"✅ LogPulse: Cleared session '{self.session_tag}'."
 
         else:
-            # 1. Identity-based deletion: Iterate through the registry
             if delete_logs:
-                # Delete the main shared file
                 main_file = self.log_dir / "perf_metrics.csv"
                 if main_file.exists():
                     main_file.unlink()
 
-                # Delete every specific CSV identified in our state tracker
                 for tag in inventory.keys():
                     tag_file = self.log_dir / f"{tag}.csv"
                     if tag_file.exists():
                         tag_file.unlink()
 
-                # Cleanup our own backups
                 for bak in self.log_dir.glob("*.v1.bak"):
                     bak.unlink()
 
-            # 2. Reset the Registry
             state = {"global_counter": 0, "session_counters": {}}
             msg = "☢️ LogPulse: Inventory-based global reset complete. (User files preserved)."
 
