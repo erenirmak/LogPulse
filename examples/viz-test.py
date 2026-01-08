@@ -6,7 +6,7 @@ import pandas as pd
 from logpulse.viz import PulseVisualizer
 
 
-def generate_battle_data(path="logs/battle_test.csv"):
+def generate_battle_data(path="logs/viz_test.csv"):
     os.makedirs("logs", exist_ok=True)
     data = []
 
@@ -53,7 +53,7 @@ def generate_battle_data(path="logs/battle_test.csv"):
 if __name__ == "__main__":
     generate_battle_data()
 
-    viz = PulseVisualizer(storage_path="logs/battle_test.csv")
+    viz = PulseVisualizer(storage_path="logs/viz_test.csv")
 
     print("📈 Testing Multi-Session Comparison...")
     viz.compare_sessions()  # This should show the boxplot vs line chart

@@ -1,5 +1,4 @@
 import json
-import os
 import time
 from datetime import datetime
 from functools import wraps
@@ -10,40 +9,104 @@ import pandas as pd
 
 
 class LogPulse:
-    """High-precision, persistent performance logger for cross-execution tracking."""
+    """High-precision, persistent performance logger for Python applications."""
 
-    def __init__(self, storage_path: str = "logs/perf_metrics.csv", session_tag: str = "default"):
-        self.storage_path = Path(storage_path)
-        self.state_path = self.storage_path.parent / ".logpulse_state.json"
+    def __init__(self, session_tag: str = "default", split_files: bool = False):
+        self.log_dir = Path("logs")
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
         self.session_tag = session_tag
+        self.state_path = self.log_dir / ".logpulse_state.json"
+
+        if split_files:
+            self.storage_path = self.log_dir / f"{session_tag}.csv"
+        else:
+            self.storage_path = self.log_dir / "perf_metrics.csv"
+
         self.records: List[Dict] = []
 
-        # Initialize run_id from disk or start fresh
-        self.run_id = self._get_next_run_id()
-        self.start_timestamp = datetime.now().isoformat()
+        # Load state and check for storage fragmentation
+        state = self._load_state()
+        if state["session_counters"].get(self.session_tag, 0) > 0 and not self.storage_path.exists():
+            print(
+                f"ℹ️ LogPulse: Session '{self.session_tag}' has existing history, "
+                f"but current config saves to a new file: {self.storage_path.name}"
+            )
 
-    def _get_next_run_id(self) -> int:
-        os.makedirs(self.storage_path.parent, exist_ok=True)
-        last_id = 0
-        if self.state_path.exists():
-            try:
-                with open(self.state_path, "r") as f:
-                    last_id = json.load(f).get("last_run_id", 0)
-            except (json.JSONDecodeError, IOError):
-                pass
+        # Initialize our dual counters
+        self.global_run_id, self.session_run_id = self._get_next_run_ids()
 
-        new_id = last_id + 1
+    def _load_state(self) -> Dict:
+        """Loads the global state. Migrates legacy v0.1.0 keys if found."""
+        default_state = {"global_counter": 0, "session_counters": {}}
+        if not self.state_path.exists():
+            return default_state
+        try:
+            with open(self.state_path, "r") as f:
+                state = json.load(f)
+                if "global_counter" not in state:  # Legacy 0.1 migration
+                    state = {"global_counter": state.get("last_run_id", 0), "session_counters": {}}
+                return state
+        except (json.JSONDecodeError, IOError):
+            return default_state
+
+    def _save_state(self, state: Dict) -> None:
         with open(self.state_path, "w") as f:
-            json.dump({"last_run_id": new_id}, f)
-        return new_id
+            json.dump(state, f, indent=4)
 
-    def clear_history(self, delete_logs: bool = False):
-        """Resets run counter and optionally deletes log files."""
-        if self.state_path.exists():
-            os.remove(self.state_path)
-        if delete_logs and self.storage_path.exists():
-            os.remove(self.storage_path)
-        print("🧹 LogPulse state reset complete.")
+    def _get_next_run_ids(self) -> tuple[int, int]:
+        state = self._load_state()
+        state["global_counter"] = int(state.get("global_counter", 0)) + 1
+
+        session_counters = state.get("session_counters", {})
+        session_counters[self.session_tag] = int(session_counters.get(self.session_tag, 0)) + 1
+        state["session_counters"] = session_counters
+
+        self._save_state(state)
+        return state["global_counter"], session_counters[self.session_tag]
+
+    def clear_history(self, session_only: bool = True, delete_logs: bool = False):
+        """
+        Surgically clears history based on the state tracker inventory.
+        """
+        state = self._load_state()
+        inventory = state.get("session_counters", {})
+
+        if session_only:
+            # 1. Prune only this specific tag from the registry
+            if self.session_tag in inventory:
+                del inventory[self.session_tag]
+
+            # 2. Delete the file only if it is the current storage target
+            if delete_logs and self.storage_path.exists():
+                self.storage_path.unlink()
+
+            msg = f"✅ LogPulse: Cleared session '{self.session_tag}'."
+
+        else:
+            # 1. Identity-based deletion: Iterate through the registry
+            if delete_logs:
+                # Delete the main shared file
+                main_file = self.log_dir / "perf_metrics.csv"
+                if main_file.exists():
+                    main_file.unlink()
+
+                # Delete every specific CSV identified in our state tracker
+                for tag in inventory.keys():
+                    tag_file = self.log_dir / f"{tag}.csv"
+                    if tag_file.exists():
+                        tag_file.unlink()
+
+                # Cleanup our own backups
+                for bak in self.log_dir.glob("*.v1.bak"):
+                    bak.unlink()
+
+            # 2. Reset the Registry
+            state = {"global_counter": 0, "session_counters": {}}
+            msg = "☢️ LogPulse: Inventory-based global reset complete. (User files preserved)."
+
+        self._save_state(state)
+        print(msg)
 
     def measure(self, label: str):
         return self._MeasureContext(self, label)
@@ -59,19 +122,44 @@ class LogPulse:
 
         return decorator
 
-    def get_summary(self) -> pd.DataFrame:
-        """Restored: Returns statistics for current records in memory."""
+    def get_summary(self, auto_print: bool = True) -> pd.DataFrame:
+        """
+        Calculates descriptive statistics for the current in-memory records.
+        Useful for a quick 'Post-Run' check before committing to disk.
+        """
         if not self.records:
+            if auto_print:
+                print("📋 LogPulse: No records in memory to summarize.")
             return pd.DataFrame()
+
         df = pd.DataFrame(self.records)
-        # Statistics engine
-        return df.groupby("label")["duration_sec"].agg(["mean", "min", "max", "count"])
+        summary = (
+            df.groupby("label")["duration_sec"]
+            .agg(["mean", "min", "max", "count"])
+            .rename(columns={"mean": "Avg (s)", "min": "Min (s)", "max": "Max (s)", "count": "Runs"})
+        )
+
+        if auto_print:  # later, maybe add formatting options and/or tr-100 machine report format
+            print(f"\n📊 Summary for {self.session_tag}:")
+            print(summary)
+        return summary
 
     def save(self):
-        """Appends memory records to the persistent CSV file."""
+        """Saves memory records to CSV with a migration check for v0.1 compatibility."""
         if not self.records:
             return
         df = pd.DataFrame(self.records)
+
+        if self.storage_path.exists():
+            try:
+                existing_cols = pd.read_csv(self.storage_path, nrows=0).columns.tolist()
+                if "run_id" in existing_cols and "global_run_id" not in existing_cols:
+                    backup = self.storage_path.with_suffix(".v1.bak")
+                    self.storage_path.rename(backup)
+                    print(f"⚠️ LogPulse: Legacy CSV detected. Archived legacy CSV to {backup}")
+            except Exception:
+                pass
+
         header = not self.storage_path.exists()
         df.to_csv(self.storage_path, mode="a", index=False, header=header, encoding="utf-8-sig")
         self.records = []
@@ -89,12 +177,13 @@ class LogPulse:
             duration_s = (time.perf_counter_ns() - self.start_ns) / 1_000_000_000
             self.parent.records.append(
                 {
-                    "run_id": self.parent.run_id,
+                    "global_run_id": self.parent.global_run_id,
+                    "session_run_id": self.parent.session_run_id,
                     "session_tag": self.parent.session_tag,
-                    "timestamp": self.parent.start_timestamp,
+                    "timestamp": datetime.now().isoformat(),
                     "label": self.label,
                     "duration_sec": round(duration_s, 9),
                     "status": "SUCCESS" if not exc_type else f"ERROR: {exc_type.__name__}",
                 }
             )
-            return False
+            return False  # Don't suppress exceptions
